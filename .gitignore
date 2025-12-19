@@ -57,5 +57,9 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
+# Prisma
 /generated/prisma
+# yarn
 .yarn/install-state.gz
+.yarn/cache/
+.yarn/unplugged/
