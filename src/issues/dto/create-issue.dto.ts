@@ -1,5 +1,4 @@
-import { Transform } from 'class-transformer';
-import { IsEnum, IsObject, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
 
 export enum IssueStatusDto {
   DRAFT = 'DRAFT',
@@ -8,33 +7,15 @@ export enum IssueStatusDto {
 }
 
 export class CreateIssueDto {
-  @IsString()
-  slug: string;
+  @IsString() slug: string;
+  @IsString() title: string;
+  @IsString() subject: string;
 
-  @IsString()
-  title: string;
+  @IsOptional() @IsString() previewText?: string;
+  @IsOptional() @IsString() intro?: string;
+  @IsOptional() @IsString() whatsGoingOn?: string;
+  @IsOptional() @IsString() whyItMatters?: string;
+  @IsOptional() @IsString() readMore?: string;
 
-  @IsString()
-  subject: string;
-
-  @IsOptional()
-  @IsString()
-  previewText?: string;
-
-  @IsOptional()
-  @IsEnum(IssueStatusDto)
-  status?: IssueStatusDto;
-
-  @Transform(({ value }) => {
-    if (typeof value === 'string') {
-      try {
-        return JSON.parse(value) as unknown;
-      } catch {
-        return value as unknown; // will fail IsObject()
-      }
-    }
-    return value as unknown;
-  })
-  @IsObject()
-  contentJson: Record<string, any>;
+  @IsOptional() @IsEnum(IssueStatusDto) status?: IssueStatusDto;
 }
