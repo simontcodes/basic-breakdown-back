@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import { IsEnum, IsObject, IsOptional, IsString } from 'class-validator';
 
 export enum IssueStatusDto {
@@ -6,24 +7,15 @@ export enum IssueStatusDto {
   ARCHIVED = 'ARCHIVED',
 }
 
-export class ContentJsonDto {
-  // Define the structure of contentJson here
-  @IsString()
-  key!: string;
-
-  @IsString()
-  value!: string;
-}
-
 export class CreateIssueDto {
   @IsString()
-  slug!: string;
+  slug: string;
 
   @IsString()
-  title!: string;
+  title: string;
 
   @IsString()
-  subject!: string;
+  subject: string;
 
   @IsOptional()
   @IsString()
@@ -33,6 +25,16 @@ export class CreateIssueDto {
   @IsEnum(IssueStatusDto)
   status?: IssueStatusDto;
 
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value) as unknown;
+      } catch {
+        return value as unknown; // will fail IsObject()
+      }
+    }
+    return value as unknown;
+  })
   @IsObject()
-  contentJson!: Record<string, any>;
+  contentJson: Record<string, any>;
 }
