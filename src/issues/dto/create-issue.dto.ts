@@ -12,7 +12,6 @@ export class CreateIssueDto {
   @IsString() subject: string;
 
   @IsOptional() @IsString() previewText?: string;
-  @IsOptional() @IsString() intro?: string;
   @IsOptional() @IsString() whatsGoingOn?: string;
   @IsOptional() @IsString() whyItMatters?: string;
   @IsOptional() @IsString() readMore?: string;

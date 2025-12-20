@@ -49,8 +49,10 @@ export class IssuesService {
         title: dto.title,
         subject: dto.subject,
         previewText: dto.previewText,
+        whatsGoingOn: dto.whatsGoingOn,
+        whyItMatters: dto.whyItMatters,
+        readMore: dto.readMore,
         status: dto.status ?? 'DRAFT',
-        contentJson: dto.contentJson,
       },
     });
   }
