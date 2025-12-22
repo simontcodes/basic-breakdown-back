@@ -52,6 +52,7 @@ export class IssuesService {
         whatsGoingOn: dto.whatsGoingOn,
         whyItMatters: dto.whyItMatters,
         readMore: dto.readMore,
+        category: dto.category,
         status: dto.status ?? 'DRAFT',
       },
     });

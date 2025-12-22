@@ -44,6 +44,9 @@ model Issue {
   whyItMatters String?
   readMore     String?
 
+  // Classification
+  category     String?     // 👈 ADD THIS
+
   // Status + publishing
   status      IssueStatus @default(DRAFT)
   publishedAt DateTime?
@@ -53,6 +56,7 @@ model Issue {
 
   deliveries Delivery[]
 }
+
 
 enum IssueStatus {
   DRAFT

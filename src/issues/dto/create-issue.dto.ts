@@ -15,6 +15,7 @@ export class CreateIssueDto {
   @IsOptional() @IsString() whatsGoingOn?: string;
   @IsOptional() @IsString() whyItMatters?: string;
   @IsOptional() @IsString() readMore?: string;
+  @IsOptional() @IsString() category?: string;
 
   @IsOptional() @IsEnum(IssueStatusDto) status?: IssueStatusDto;
 }
