@@ -30,8 +30,8 @@ enum SubscriberStatus {
 }
 
 model Issue {
-  id          String      @id @default(cuid())
-  slug        String      @unique
+  id   String @id @default(cuid())
+  slug String @unique
 
   // Email/metadata
   title       String
@@ -45,18 +45,18 @@ model Issue {
   readMore     String?
 
   // Classification
-  category     String?     // 👈 ADD THIS
+  category String? // 👈 ADD THIS
 
   // Status + publishing
   status      IssueStatus @default(DRAFT)
   publishedAt DateTime?
 
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  deliveries Delivery[]
+  deliveries  Delivery[]
+  socialPosts SocialPost[]
 }
-
 
 enum IssueStatus {
   DRAFT
@@ -108,4 +108,59 @@ enum EventType {
   UNSUBSCRIBE
   BOUNCE
   COMPLAINT
+}
+
+model SocialPost {
+  id       String           @id @default(cuid())
+  platform SocialPlatform
+  issueId  String? // link to Issue when this is an issue thread
+  url      String? // optional: if posting a blog URL not tied to Issue
+  status   SocialPostStatus @default(DRAFT)
+
+  // Content
+  tweetCount Int               @default(0)
+  tweets     SocialPostTweet[]
+
+  // Publishing results
+  rootPostId  String? // root tweet id on X
+  lastPostId  String? // last tweet id (useful for debugging)
+  publishedAt DateTime?
+
+  // Error / retries
+  attempts  Int     @default(0)
+  lastError String?
+
+  // Audit
+  createdBy String? // "n8n", "admin", etc.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  issue Issue? @relation(fields: [issueId], references: [id])
+
+  @@index([platform, status])
+  @@index([issueId])
+}
+
+model SocialPostTweet {
+  id           String  @id @default(cuid())
+  socialPostId String
+  order        Int
+  text         String // final tweet text (already 280-safe and numbered)
+  xPostId      String? // tweet id after publishing
+
+  socialPost SocialPost @relation(fields: [socialPostId], references: [id], onDelete: Cascade)
+
+  @@unique([socialPostId, order])
+}
+
+enum SocialPlatform {
+  X
+}
+
+enum SocialPostStatus {
+  DRAFT
+  READY // generated and validated, ready to publish
+  PUBLISHING
+  PUBLISHED
+  FAILED
 }
