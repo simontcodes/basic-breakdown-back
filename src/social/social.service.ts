@@ -29,28 +29,29 @@ export class SocialService {
   ) {}
 
   async createOrRefreshDraft(issueId: string, style: string, ctaUrl?: string) {
+    console.log('[DRAFT] start', { issueId, style, ctaUrl });
+
     const issue = await this.prisma.issue.findUnique({
       where: { id: issueId },
     });
+    console.log('[DRAFT] found issue?', Boolean(issue), issue?.slug);
 
     if (!issue) throw new BadRequestException('Issue not found');
 
     const publicSiteUrl = process.env.PUBLIC_SITE_URL;
-    if (!ctaUrl && !publicSiteUrl) {
-      throw new BadRequestException('Missing PUBLIC_SITE_URL env var');
-    }
+    console.log('[DRAFT] PUBLIC_SITE_URL set?', Boolean(publicSiteUrl));
 
     const url = ctaUrl ?? `${publicSiteUrl}/issues/${issue.slug}`;
+    console.log('[DRAFT] url', url);
 
-    // 1) Build raw tweet ideas (no numbering yet)
     const raw = this.buildThreadFromIssue(issue, url, style);
+    console.log('[DRAFT] raw lines', raw.length);
 
-    // 2) Normalize to 280 chars + numbering
     const tweets = this.normalizeThread(raw);
+    console.log('[DRAFT] tweets normalized', tweets.length);
 
-    // 3) Upsert SocialPost
-    // NOTE: we avoid importing SocialPost/SocialPostStatus enums to prevent "error type" issues
-    const post: SocialPostWithTweets = await this.prisma.socialPost.upsert({
+    console.log('[DRAFT] upserting SocialPost...');
+    const post = await this.prisma.socialPost.upsert({
       where: { id: `draft_${issueId}` },
       update: {
         issueId,
@@ -70,21 +71,26 @@ export class SocialService {
       },
       include: { tweets: true },
     });
+    console.log('[DRAFT] upserted post', post.id);
 
-    // 4) Insert tweets
-    await this.prisma.socialPostTweet.createMany({
+    console.log('[DRAFT] creating tweet rows...');
+    const created = await this.prisma.socialPostTweet.createMany({
       data: tweets.map((text, i) => ({
         socialPostId: post.id,
         order: i + 1,
         text,
       })),
     });
+    console.log('[DRAFT] createMany count', created.count);
 
-    return {
+    const result = {
       socialPostId: post.id,
       status: 'READY' as const,
       tweetCount: tweets.length,
     };
+    console.log('[DRAFT] done', result);
+
+    return result;
   }
 
   async publish(socialPostId: string, dryRun: boolean) {

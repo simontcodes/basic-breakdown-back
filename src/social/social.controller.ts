@@ -11,11 +11,13 @@ export class SocialController {
   async draft(
     @Body() body: { issueId: string; style?: string; ctaUrl?: string },
   ) {
+    console.log('[DRAFT] body:', body);
     const result = await this.social.createOrRefreshDraft(
       body.issueId,
       body.style ?? 'standard',
       body.ctaUrl,
     );
+    console.log('[DRAFT] result:', result);
     return result;
   }
 
