@@ -8,12 +8,15 @@ export class SocialController {
   constructor(private readonly social: SocialService) {}
 
   @Post('draft')
-  draft(@Body() body: { issueId: string; style?: string; ctaUrl?: string }) {
-    return this.social.createOrRefreshDraft(
+  async draft(
+    @Body() body: { issueId: string; style?: string; ctaUrl?: string },
+  ) {
+    const result = await this.social.createOrRefreshDraft(
       body.issueId,
       body.style ?? 'standard',
       body.ctaUrl,
     );
+    return result;
   }
 
   @Post('publish')
