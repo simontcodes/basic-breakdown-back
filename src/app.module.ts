@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { IssuesModule } from './issues/issues.module';
+import { SocialModule } from './social/social.module';
 
 const envFile =
   process.env.NODE_ENV === 'production'
@@ -33,6 +34,7 @@ const envFile =
 
     PrismaModule,
     IssuesModule,
+    SocialModule,
   ],
   controllers: [AppController],
   providers: [
