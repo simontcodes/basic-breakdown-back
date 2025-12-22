@@ -21,6 +21,7 @@ export class IssuesService {
         slug: true,
         title: true,
         subject: true,
+        category: true,
         previewText: true,
         publishedAt: true,
         createdAt: true,
