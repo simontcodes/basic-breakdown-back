@@ -27,10 +27,6 @@ export class XClient {
     return { id: res.data.id, text: res.data.text };
   }
 
-  async test() {
-    return this.createTweet('🧪 X integration test from Basic Breakdown');
-  }
-
   /** Replies to an existing tweet id (for threads) */
   async replyTweet(
     text: string,

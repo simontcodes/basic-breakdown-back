@@ -7,9 +7,9 @@ type SocialPostWithTweetsOrdered = Prisma.SocialPostGetPayload<{
   include: { tweets: { orderBy: { order: 'asc' } } };
 }>;
 
-type SocialPostWithTweets = Prisma.SocialPostGetPayload<{
-  include: { tweets: true };
-}>;
+// type SocialPostWithTweets = Prisma.SocialPostGetPayload<{
+//   include: { tweets: true };
+// }>;
 
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -116,10 +116,6 @@ export class SocialService {
       where: { id },
       include: { tweets: { orderBy: { order: 'asc' } } },
     });
-  }
-
-  async testX() {
-    return this.x.test();
   }
 
   private buildThreadFromIssue(
