@@ -13,10 +13,10 @@ export class XClient {
 
   constructor() {
     this.client = new TwitterApi({
-      appKey: must('X-API-KEY'),
-      appSecret: must('X-API-SECRET'),
-      accessToken: must('X-ACCESS-TOKEN'),
-      accessSecret: must('X-ACCESS-TOKEN-SECRET'),
+      appKey: must('X_API_KEY'),
+      appSecret: must('X_API_SECRET'),
+      accessToken: must('X_ACCESS_TOKEN'),
+      accessSecret: must('X_ACCESS_TOKEN_SECRET'),
     });
   }
 
