@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { InternalTokenGuard } from '../common/guards/internal-token.guard';
 import { SocialService } from './social.service';
 
-@UseGuards(InternalTokenGuard)
+// @UseGuards(InternalTokenGuard)
 @Controller('social/x')
 export class SocialController {
   constructor(private readonly social: SocialService) {}
@@ -24,6 +24,11 @@ export class SocialController {
   @Post('publish')
   publish(@Body() body: { socialPostId: string; dryRun?: boolean }) {
     return this.social.publish(body.socialPostId, Boolean(body.dryRun));
+  }
+
+  @Post('test')
+  test() {
+    return this.social.testX();
   }
 
   @Get(':id')

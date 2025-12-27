@@ -5,8 +5,10 @@
     "resolvePackageJsonExports": true,
     "verbatimModuleSyntax": false,
     "esModuleInterop": true,
-    "isolatedModules": true,
-    "declaration": true,
+
+    "isolatedModules": false,
+    "declaration": false,
+
     "removeComments": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,

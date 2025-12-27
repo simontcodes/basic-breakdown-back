@@ -118,6 +118,10 @@ export class SocialService {
     });
   }
 
+  async testX() {
+    return this.x.test();
+  }
+
   private buildThreadFromIssue(
     issue: Issue,
     url: string,
