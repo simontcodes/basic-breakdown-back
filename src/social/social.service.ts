@@ -41,7 +41,7 @@ export class SocialService {
     const publicSiteUrl = process.env.PUBLIC_SITE_URL;
     console.log('[DRAFT] PUBLIC_SITE_URL set?', Boolean(publicSiteUrl));
 
-    const url = ctaUrl ?? `${publicSiteUrl}/issues/${issue.slug}`;
+    const url = ctaUrl ?? `${publicSiteUrl}/posts/${issue.slug}`;
     console.log('[DRAFT] url', url);
 
     const raw = this.buildThreadFromIssue(issue, url, style);
