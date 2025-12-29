@@ -1,11 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { XClient } from './x/x.client';
-import type { Issue, Prisma } from '@prisma/client';
+import type { Issue } from '@prisma/client';
 
-type SocialPostWithTweetsOrdered = Prisma.SocialPostGetPayload<{
-  include: { tweets: { orderBy: { order: 'asc' } } };
-}>;
+// type SocialPostWithTweetsOrdered = Prisma.SocialPostGetPayload<{
+//   include: { tweets: { orderBy: { order: 'asc' } } };
+// }>;
 
 // type SocialPostWithTweets = Prisma.SocialPostGetPayload<{
 //   include: { tweets: true };
@@ -93,12 +93,16 @@ export class SocialService {
     return result;
   }
 
-  async publish(socialPostId: string, dryRun: boolean) {
-    const post: SocialPostWithTweetsOrdered | null =
-      await this.prisma.socialPost.findUnique({
-        where: { id: socialPostId },
-        include: { tweets: { orderBy: { order: 'asc' } } },
-      });
+  async publish(
+    socialPostId: string,
+    dryRun: boolean,
+    imageUrl?: string,
+    imageBase64?: string,
+  ) {
+    const post = await this.prisma.socialPost.findUnique({
+      where: { id: socialPostId },
+      include: { tweets: { orderBy: { order: 'asc' } } },
+    });
 
     if (!post) throw new BadRequestException('SocialPost not found');
 
@@ -106,9 +110,7 @@ export class SocialService {
       return { status: post.status, tweets: post.tweets.map((t) => t.text) };
     }
 
-    // For now: publish synchronously (OK for testing).
-    // Recommended next step: move this into a worker/queue (BullMQ) so HTTP returns fast.
-    return this.publishThreadNow(post.id);
+    return this.publishThreadNow(post.id, imageUrl, imageBase64);
   }
 
   async getPost(id: string) {
@@ -182,17 +184,19 @@ export class SocialService {
     });
   }
 
-  private async publishThreadNow(socialPostId: string) {
-    const post: SocialPostWithTweetsOrdered | null =
-      await this.prisma.socialPost.findUnique({
-        where: { id: socialPostId },
-        include: { tweets: { orderBy: { order: 'asc' } } },
-      });
+  private async publishThreadNow(
+    socialPostId: string,
+    imageUrl?: string,
+    imageBase64?: string,
+  ) {
+    const post = await this.prisma.socialPost.findUnique({
+      where: { id: socialPostId },
+      include: { tweets: { orderBy: { order: 'asc' } } },
+    });
 
     if (!post) throw new BadRequestException('SocialPost not found');
-    if (post.tweets.length === 0) {
+    if (post.tweets.length === 0)
       throw new BadRequestException('SocialPost has no tweets');
-    }
 
     if (post.status !== 'READY' && post.status !== 'FAILED') {
       throw new BadRequestException(
@@ -210,9 +214,16 @@ export class SocialService {
     });
 
     try {
-      // Tweet 1
+      // If we have an image, upload it and attach to first tweet
+      let mediaId: string | undefined;
+
+      if (imageBase64 || imageUrl) {
+        mediaId = await this.x.uploadImage({ imageBase64, imageUrl });
+      }
+
+      // Tweet 1 (root)
       const first = post.tweets[0];
-      const root = await this.x.createTweet(first.text);
+      const root = await this.x.createTweet(first.text, mediaId);
 
       await this.prisma.socialPost.update({
         where: { id: post.id },

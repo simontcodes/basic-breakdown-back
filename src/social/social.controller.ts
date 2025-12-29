@@ -21,8 +21,21 @@ export class SocialController {
   }
 
   @Post('publish')
-  publish(@Body() body: { socialPostId: string; dryRun?: boolean }) {
-    return this.social.publish(body.socialPostId, Boolean(body.dryRun));
+  publish(
+    @Body()
+    body: {
+      socialPostId: string;
+      dryRun?: boolean;
+      imageUrl?: string;
+      imageBase64?: string;
+    },
+  ) {
+    return this.social.publish(
+      body.socialPostId,
+      Boolean(body.dryRun),
+      body.imageUrl,
+      body.imageBase64,
+    );
   }
 
   @Get(':id')

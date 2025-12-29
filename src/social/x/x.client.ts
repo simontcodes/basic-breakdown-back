@@ -21,9 +21,17 @@ export class XClient {
   }
 
   /** Creates a tweet (root post) */
-  async createTweet(text: string): Promise<{ id: string; text: string }> {
+  async createTweet(
+    text: string,
+    mediaId?: string,
+  ): Promise<{ id: string; text: string }> {
     const clean = this.normalize(text);
-    const res = await this.client.v2.tweet(clean);
+
+    const opts = mediaId
+      ? { media: { media_ids: [mediaId] as [string] } }
+      : undefined;
+
+    const res = await this.client.v2.tweet(clean, opts);
     return { id: res.data.id, text: res.data.text };
   }
 
@@ -44,5 +52,30 @@ export class XClient {
     if (!t) throw new Error('Tweet text is empty');
     if (t.length > 280) throw new Error(`Tweet too long (${t.length}/280)`);
     return t;
+  }
+
+  async uploadImage(params: {
+    imageBase64?: string;
+    imageUrl?: string;
+  }): Promise<string> {
+    const { imageBase64, imageUrl } = params;
+
+    let buf: Buffer;
+
+    if (imageBase64) {
+      const cleaned = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+      buf = Buffer.from(cleaned, 'base64');
+    } else if (imageUrl) {
+      const res = await fetch(imageUrl); // ✅ native fetch
+      if (!res.ok)
+        throw new Error(`Failed to download imageUrl: ${res.status}`);
+      const arr = await res.arrayBuffer();
+      buf = Buffer.from(arr);
+    } else {
+      throw new Error('uploadImage requires imageBase64 or imageUrl');
+    }
+
+    const mediaId = await this.client.v1.uploadMedia(buf, { type: 'png' });
+    return mediaId;
   }
 }
