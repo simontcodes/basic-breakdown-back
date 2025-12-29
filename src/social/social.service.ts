@@ -239,29 +239,39 @@ export class SocialService {
     imageUrl?: string,
     imageBase64?: string,
   ) {
-    // Fetch current post state
     const post = await this.prisma.socialPost.findUnique({
       where: { id: socialPostId },
-      include: { tweets: { orderBy: { order: 'asc' } } },
+      include: {
+        tweets: { orderBy: { order: 'asc' } },
+        issue: true, // ✅ works with your schema
+      },
     });
 
     if (!post) throw new BadRequestException('SocialPost not found');
-    if (post.tweets.length === 0)
-      throw new BadRequestException('SocialPost has no tweets');
+    if (!post.issue)
+      throw new BadRequestException('Issue not found for SocialPost');
 
-    // If already publishing, don't start a second runner
+    // already published -> no-op (prevents accidental double post)
+    if (post.status === 'PUBLISHED' && post.rootPostId) {
+      return {
+        status: post.status,
+        rootPostId: post.rootPostId,
+        publishedAt: post.publishedAt,
+        mode: 'SINGLE' as const,
+        message: 'Already published',
+      };
+    }
+
     if (post.status === 'PUBLISHING') {
       return { status: post.status, message: 'Already publishing' };
     }
 
-    // Allow resume from FAILED/READY only
     if (post.status !== 'READY' && post.status !== 'FAILED') {
       throw new BadRequestException(
         `Post not publishable from status: ${post.status}`,
       );
     }
 
-    // Mark as publishing (best-effort lock)
     await this.prisma.socialPost.update({
       where: { id: post.id },
       data: {
@@ -272,99 +282,75 @@ export class SocialService {
     });
 
     try {
-      // If already fully published (idempotent)
-      const allHaveIds = post.tweets.every((t) => Boolean(t.xPostId));
-      if (allHaveIds && post.rootPostId) {
-        const done = await this.prisma.socialPost.update({
-          where: { id: post.id },
-          data: {
-            status: 'PUBLISHED',
-            publishedAt: post.publishedAt ?? new Date(),
-          },
-        });
-        return {
-          status: done.status,
-          rootPostId: done.rootPostId,
-          publishedAt: done.publishedAt,
-        };
+      // 1) Upload image (optional)
+      let mediaId: string | undefined;
+      if (imageBase64 || imageUrl) {
+        mediaId = await this.x.uploadImage({ imageBase64, imageUrl });
       }
 
-      // If root tweet doesn't exist yet, create it (with media if provided)
-      if (!post.rootPostId) {
-        let mediaId: string | undefined;
+      // 2) Build ONE tweet from the issue
+      const issue = post.issue;
 
-        if (imageBase64 || imageUrl) {
-          mediaId = await this.withBackoff(
-            () => this.x.uploadImage({ imageBase64, imageUrl }),
-            'uploadImage',
-          );
-        }
+      const clean = (s?: string | null) =>
+        (s ?? '')
+          .toString()
+          .replace(/^\s*=\s*/gm, '')
+          .replace(/\s+/g, ' ')
+          .trim();
 
-        const first = post.tweets[0];
+      const trim = (s: string, max: number) =>
+        s.length > max ? `${s.slice(0, max - 1).trim()}…` : s;
 
-        const root = await this.withBackoff(
-          () => this.x.createTweet(first.text, mediaId),
-          'createTweet(root)',
-        );
+      const headline = `BREAKING: ${clean(issue.title)}`;
 
-        await this.prisma.socialPost.update({
-          where: { id: post.id },
-          data: { rootPostId: root.id, lastPostId: root.id },
-        });
+      const goingOn = clean(issue.whatsGoingOn);
+      const matters = clean(issue.whyItMatters);
 
+      const line1 = goingOn ? `• What’s going on: ${trim(goingOn, 120)}` : '';
+      const line2 = matters ? `• Why it matters: ${trim(matters, 120)}` : '';
+
+      const url = post.url ?? issue.readMore ?? '';
+      const link = url ? url : '';
+
+      let singleText = [headline, line1, line2, link]
+        .filter(Boolean)
+        .join('\n');
+
+      // hard enforce 280
+      if (singleText.length > 280) {
+        singleText = singleText.slice(0, 279).trimEnd() + '…';
+      }
+
+      // 3) Post ONE tweet
+      const root = await this.x.createTweet(singleText, mediaId);
+
+      // 4) Save results
+      const published = await this.prisma.socialPost.update({
+        where: { id: post.id },
+        data: {
+          status: 'PUBLISHED',
+          rootPostId: root.id,
+          lastPostId: root.id,
+          publishedAt: new Date(),
+          lastError: null,
+          tweetCount: 1,
+        },
+      });
+
+      // Optional: mark first tweet row with xPostId (keeps your existing tables consistent)
+      const firstRow = post.tweets?.[0];
+      if (firstRow) {
         await this.prisma.socialPostTweet.update({
-          where: { id: first.id },
+          where: { id: firstRow.id },
           data: { xPostId: root.id },
         });
       }
-
-      // Re-fetch updated state after possibly creating root
-      const post2 = await this.prisma.socialPost.findUnique({
-        where: { id: socialPostId },
-        include: { tweets: { orderBy: { order: 'asc' } } },
-      });
-
-      if (!post2)
-        throw new BadRequestException('SocialPost not found (after root)');
-      if (!post2.rootPostId)
-        throw new BadRequestException('Root tweet id missing after create');
-
-      let replyTo = post2.lastPostId ?? post2.rootPostId;
-
-      // Post remaining tweets, skipping any already posted (resume-safe)
-      for (const tw of post2.tweets.slice(1)) {
-        if (tw.xPostId) continue;
-
-        // More conservative spacing than 35s
-        await this.sleep(75_000);
-
-        const res = await this.withBackoff(
-          () => this.x.replyTweet(tw.text, replyTo),
-          `replyTweet(order=${tw.order})`,
-        );
-
-        replyTo = res.id;
-
-        await this.prisma.socialPost.update({
-          where: { id: post2.id },
-          data: { lastPostId: res.id },
-        });
-
-        await this.prisma.socialPostTweet.update({
-          where: { id: tw.id },
-          data: { xPostId: res.id },
-        });
-      }
-
-      const published = await this.prisma.socialPost.update({
-        where: { id: post2.id },
-        data: { status: 'PUBLISHED', publishedAt: new Date() },
-      });
 
       return {
         status: published.status,
         rootPostId: published.rootPostId,
         publishedAt: published.publishedAt,
+        mode: 'SINGLE' as const,
       };
     } catch (err: unknown) {
       const message = getErrorMessage(err);
@@ -374,7 +360,9 @@ export class SocialService {
         data: { status: 'FAILED', lastError: message },
       });
 
-      throw new BadRequestException(`Failed to publish thread: ${message}`);
+      throw new BadRequestException(
+        `Failed to publish single tweet: ${message}`,
+      );
     }
   }
 
