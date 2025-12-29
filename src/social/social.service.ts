@@ -3,8 +3,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { XClient } from './x/x.client';
 import type { Issue } from '@prisma/client';
 
-// type UnknownRecord = Record<string, unknown>;
-
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === 'string') return err;
@@ -168,9 +166,10 @@ export class SocialService {
         data: { status: 'FAILED', lastError: message },
       });
 
-      throw new BadRequestException(
-        `Failed to publish single tweet: ${message}`,
-      );
+      // ✅ IMPORTANT:
+      // Throw a plain Error so Nest returns HTTP 500, and n8n shows this as upstream/server failure
+      // instead of misleading 400 "bad request".
+      throw new Error(`Failed to publish single tweet: ${message}`);
     }
   }
 
