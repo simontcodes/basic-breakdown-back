@@ -3,13 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { XClient } from './x/x.client';
 import type { Issue } from '@prisma/client';
 
-// type SocialPostWithTweetsOrdered = Prisma.SocialPostGetPayload<{
-//   include: { tweets: { orderBy: { order: 'asc' } } };
-// }>;
-
-// type SocialPostWithTweets = Prisma.SocialPostGetPayload<{
-//   include: { tweets: true };
-// }>;
+type UnknownRecord = Record<string, unknown>;
 
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -19,6 +13,20 @@ function getErrorMessage(err: unknown): string {
   } catch {
     return 'Unknown error';
   }
+}
+
+function isRecord(v: unknown): v is UnknownRecord {
+  return typeof v === 'object' && v !== null;
+}
+
+function getNumberProp(obj: UnknownRecord, key: string): number | undefined {
+  const v = obj[key];
+  return typeof v === 'number' ? v : undefined;
+}
+
+function getStringProp(obj: UnknownRecord, key: string): string | undefined {
+  const v = obj[key];
+  return typeof v === 'string' ? v : undefined;
 }
 
 @Injectable()
@@ -125,8 +133,6 @@ export class SocialService {
     url: string,
     style: string,
   ): string[] {
-    // If you want different templates later:
-    // switch (style) { case 'standard': ... }
     void style;
 
     const lines: string[] = [];
@@ -149,7 +155,6 @@ export class SocialService {
   }
 
   private cleanIssueText(text: string): string {
-    // Removes your leading "=" formatting and trims
     return text.replace(/^\s*=\s*/gm, '').trim();
   }
 
@@ -184,11 +189,57 @@ export class SocialService {
     });
   }
 
+  // -----------------------------
+  // Rate-limit handling + retries
+  // -----------------------------
+  private isRateLimit(err: unknown): boolean {
+    if (!isRecord(err)) return false;
+
+    const code =
+      getNumberProp(err, 'code') ??
+      getNumberProp(err, 'status') ??
+      getNumberProp(err, 'statusCode');
+
+    const msg = (getStringProp(err, 'message') ?? '').toLowerCase();
+
+    return (
+      code === 429 || msg.includes('429') || msg.includes('too many requests')
+    );
+  }
+
+  private async withBackoff<T>(
+    fn: () => Promise<T>,
+    label: string,
+  ): Promise<T> {
+    const waits = [30_000, 60_000, 120_000, 240_000]; // 30s → 4m
+    let lastErr: unknown;
+
+    for (let i = 0; i < waits.length; i++) {
+      try {
+        return await fn();
+      } catch (err: unknown) {
+        lastErr = err;
+        if (!this.isRateLimit(err)) throw err;
+
+        const jitter = Math.floor(Math.random() * 5_000);
+        const wait = waits[i] + jitter;
+        console.log(
+          `[X RATE LIMIT] ${label} retry in ${wait}ms`,
+          getErrorMessage(err),
+        );
+        await this.sleep(wait);
+      }
+    }
+
+    throw lastErr;
+  }
+
   private async publishThreadNow(
     socialPostId: string,
     imageUrl?: string,
     imageBase64?: string,
   ) {
+    // Fetch current post state
     const post = await this.prisma.socialPost.findUnique({
       where: { id: socialPostId },
       include: { tweets: { orderBy: { order: 'asc' } } },
@@ -198,12 +249,19 @@ export class SocialService {
     if (post.tweets.length === 0)
       throw new BadRequestException('SocialPost has no tweets');
 
+    // If already publishing, don't start a second runner
+    if (post.status === 'PUBLISHING') {
+      return { status: post.status, message: 'Already publishing' };
+    }
+
+    // Allow resume from FAILED/READY only
     if (post.status !== 'READY' && post.status !== 'FAILED') {
       throw new BadRequestException(
         `Post not publishable from status: ${post.status}`,
       );
     }
 
+    // Mark as publishing (best-effort lock)
     await this.prisma.socialPost.update({
       where: { id: post.id },
       data: {
@@ -214,37 +272,81 @@ export class SocialService {
     });
 
     try {
-      // If we have an image, upload it and attach to first tweet
-      let mediaId: string | undefined;
-
-      if (imageBase64 || imageUrl) {
-        mediaId = await this.x.uploadImage({ imageBase64, imageUrl });
+      // If already fully published (idempotent)
+      const allHaveIds = post.tweets.every((t) => Boolean(t.xPostId));
+      if (allHaveIds && post.rootPostId) {
+        const done = await this.prisma.socialPost.update({
+          where: { id: post.id },
+          data: {
+            status: 'PUBLISHED',
+            publishedAt: post.publishedAt ?? new Date(),
+          },
+        });
+        return {
+          status: done.status,
+          rootPostId: done.rootPostId,
+          publishedAt: done.publishedAt,
+        };
       }
 
-      // Tweet 1 (root)
-      const first = post.tweets[0];
-      const root = await this.x.createTweet(first.text, mediaId);
+      // If root tweet doesn't exist yet, create it (with media if provided)
+      if (!post.rootPostId) {
+        let mediaId: string | undefined;
 
-      await this.prisma.socialPost.update({
-        where: { id: post.id },
-        data: { rootPostId: root.id, lastPostId: root.id },
-      });
+        if (imageBase64 || imageUrl) {
+          mediaId = await this.withBackoff(
+            () => this.x.uploadImage({ imageBase64, imageUrl }),
+            'uploadImage',
+          );
+        }
 
-      await this.prisma.socialPostTweet.update({
-        where: { id: first.id },
-        data: { xPostId: root.id },
-      });
+        const first = post.tweets[0];
 
-      // Replies
-      let replyTo = root.id;
-
-      for (const tw of post.tweets.slice(1)) {
-        await this.sleep(35_000);
-        const res = await this.x.replyTweet(tw.text, replyTo);
-        replyTo = res.id;
+        const root = await this.withBackoff(
+          () => this.x.createTweet(first.text, mediaId),
+          'createTweet(root)',
+        );
 
         await this.prisma.socialPost.update({
           where: { id: post.id },
+          data: { rootPostId: root.id, lastPostId: root.id },
+        });
+
+        await this.prisma.socialPostTweet.update({
+          where: { id: first.id },
+          data: { xPostId: root.id },
+        });
+      }
+
+      // Re-fetch updated state after possibly creating root
+      const post2 = await this.prisma.socialPost.findUnique({
+        where: { id: socialPostId },
+        include: { tweets: { orderBy: { order: 'asc' } } },
+      });
+
+      if (!post2)
+        throw new BadRequestException('SocialPost not found (after root)');
+      if (!post2.rootPostId)
+        throw new BadRequestException('Root tweet id missing after create');
+
+      let replyTo = post2.lastPostId ?? post2.rootPostId;
+
+      // Post remaining tweets, skipping any already posted (resume-safe)
+      for (const tw of post2.tweets.slice(1)) {
+        if (tw.xPostId) continue;
+
+        // More conservative spacing than 35s
+        await this.sleep(75_000);
+
+        const res = await this.withBackoff(
+          () => this.x.replyTweet(tw.text, replyTo),
+          `replyTweet(order=${tw.order})`,
+        );
+
+        replyTo = res.id;
+
+        await this.prisma.socialPost.update({
+          where: { id: post2.id },
           data: { lastPostId: res.id },
         });
 
@@ -255,7 +357,7 @@ export class SocialService {
       }
 
       const published = await this.prisma.socialPost.update({
-        where: { id: post.id },
+        where: { id: post2.id },
         data: { status: 'PUBLISHED', publishedAt: new Date() },
       });
 
